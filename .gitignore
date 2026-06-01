@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Environment Variables
+.env
+
+# AWS
+.aws/
+
+# Temp files
+*.pdf
+temp_chunk_*.pdf
