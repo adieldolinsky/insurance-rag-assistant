@@ -1,0 +1,51 @@
+# Git & IDE
+.git
+.gitignore
+.idea
+.vscode
+.cursor
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Secrets & local AWS config (inject at runtime)
+.env
+.env.*
+.aws/
+*.pem
+
+# Runtime / local artifacts
+tmp_uploads/
+tmp_outputs/
+*.pdf
+temp_chunk_*.pdf
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docs (not needed in image)
+README.md
+*.md
+!requirements.txt
+
+# Docker (avoid recursive copy noise)
+Dockerfile*
+docker-compose*.yml
+.dockerignore

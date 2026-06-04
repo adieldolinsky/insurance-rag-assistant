@@ -13,3 +13,7 @@ venv/
 # Temp files
 *.pdf
 temp_chunk_*.pdf
+
+# Runtime working directories (auto-created on startup)
+tmp_uploads/
+tmp_outputs/
