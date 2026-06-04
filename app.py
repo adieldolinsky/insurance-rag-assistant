@@ -3,10 +3,12 @@ Flask entry point for the Insurance RAG web application.
 
 Routes:
   GET  /              -> the Hebrew RTL chat + upload UI
-  GET  /policies      -> policies currently in the Knowledge Base (sidebar source)
-  POST /upload        -> save the PDF, start a background thread, return 202 Accepted
-  GET  /status/<id>   -> poll background ingestion progress
-  POST /chat          -> RAG retrieval + generation answer
+  GET  /health        -> liveness probe (no AWS calls)
+  GET  /ready         -> readiness probe (STS + S3 bucket)
+  GET  /policies      -> policies currently in the Knowledge Base
+  POST /upload        -> save PDF, background thread, 202 Accepted
+  GET  /status/<id>   -> poll ingestion progress
+  POST /chat          -> RAG retrieval + generation
 """
 from __future__ import annotations
 
@@ -18,14 +20,43 @@ import uuid
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from config import UPLOAD_FOLDER, setup_logging
+from config import (
+    BUCKET_NAME,
+    UPLOAD_FOLDER,
+    setup_logging,
+    validate_aws_config_or_exit,
+)
 from services import bedrock_service, policy_registry, upload_service
+from services.aws_clients import check_aws_connectivity, check_s3_bucket
 
 setup_logging()
+validate_aws_config_or_exit()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB cap for large policies.
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
+
+
+@app.route("/health")
+def health():
+    """Liveness: process is running. Safe for Docker HEALTHCHECK / ALB."""
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/ready")
+def ready():
+    """Readiness: IAM credentials and S3 bucket are reachable."""
+    ok, detail = check_aws_connectivity()
+    if not ok:
+        return jsonify({"status": "not_ready", "error": detail}), 503
+
+    bucket_ok, bucket_detail = check_s3_bucket(BUCKET_NAME)
+    if not bucket_ok:
+        return jsonify({"status": "not_ready", "error": bucket_detail}), 503
+
+    return jsonify(
+        {"status": "ready", "identity": detail, "bucket": BUCKET_NAME}
+    ), 200
 
 
 @app.route("/")
@@ -35,7 +66,6 @@ def index() -> str:
 
 @app.route("/policies")
 def policies():
-    """Return the policies currently tracked in the Knowledge Base."""
     try:
         force = request.args.get("refresh") == "1"
         items = [p.to_dict() for p in policy_registry.list_policies(force_refresh=force)]
@@ -76,7 +106,6 @@ def upload():
     )
     thread.start()
 
-    # Return immediately so the browser does not time out on long Docling jobs.
     return (
         jsonify(
             {
@@ -118,4 +147,6 @@ def chat():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    from config import APP_BIND_HOST, APP_PORT
+
+    app.run(host=APP_BIND_HOST, port=APP_PORT, debug=False)
