@@ -1,30 +1,45 @@
 """
-Central configuration for the Insurance RAG application.
-
-AWS resource IDs below match the original MVP and can be overridden via environment
-variables. On EC2, attach an IAM instance profile (no static keys in the image).
+Central configuration — every key below maps 1:1 to a variable in .env / .env.example.
 """
 from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 
-# --- AWS / Bedrock (preserved defaults; override in production) ---
+# --- AWS region & credentials ---
 REGION: str = os.environ.get(
     "AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 )
-MODEL_ID: str = os.environ.get(
-    "BEDROCK_MODEL_ID", "us.anthropic.claude-opus-4-6-v1"
-)
-BUCKET_NAME: str = os.environ.get("S3_BUCKET_NAME", "insurance-private-mvp")
+AWS_PROFILE: str = os.environ.get("AWS_PROFILE", "")
+# Local Docker: require keys in .env. EC2: set AWS_USE_ENV_CREDENTIALS=0 (IAM role).
+AWS_USE_ENV_CREDENTIALS: bool = os.environ.get(
+    "AWS_USE_ENV_CREDENTIALS", "1"
+).lower() in ("1", "true", "yes")
+
+# --- AWS resources ---
+S3_BUCKET_NAME: str = os.environ.get("S3_BUCKET_NAME", "insurance-private-mvp")
 KNOWLEDGE_BASE_ID: str = os.environ.get("KNOWLEDGE_BASE_ID", "NXYJDUMTAJ")
+KNOWLEDGE_BASE_DATA_SOURCE_ID: str = os.environ.get("KNOWLEDGE_BASE_DATA_SOURCE_ID", "")
 
-# Optional: if empty, upload_service resolves the first data source automatically.
-DATA_SOURCE_ID: str = os.environ.get("KNOWLEDGE_BASE_DATA_SOURCE_ID", "")
+# Alias used by services (same value as S3_BUCKET_NAME / KNOWLEDGE_BASE_DATA_SOURCE_ID)
+BUCKET_NAME: str = S3_BUCKET_NAME
+DATA_SOURCE_ID: str = KNOWLEDGE_BASE_DATA_SOURCE_ID
 
-# When set, startup fails if required env vars are not explicitly provided.
+# --- Bedrock models & agent ---
+BEDROCK_MODEL_ID: str = os.environ.get(
+    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+)
+MODEL_ID: str = BEDROCK_MODEL_ID
+
+BEDROCK_AGENT_ID: str = os.environ.get("BEDROCK_AGENT_ID", "827DXDYFRW")
+BEDROCK_AGENT_ALIAS_ID: str = os.environ.get("BEDROCK_AGENT_ALIAS_ID", "2DQU6OOOXR")
+
+# --- Lambda ETL function names ---
+ADMIN_LAMBDA_NAME: str = os.environ.get("ADMIN_LAMBDA_NAME", "Admin_Policy_ETL_Lambda")
+USER_LAMBDA_NAME: str = os.environ.get("USER_LAMBDA_NAME", "Lambda3_User_ETL")
+
+# --- Startup validation ---
 REQUIRE_AWS_ENV: bool = os.environ.get("REQUIRE_AWS_ENV", "").lower() in (
     "1",
     "true",
@@ -32,48 +47,29 @@ REQUIRE_AWS_ENV: bool = os.environ.get("REQUIRE_AWS_ENV", "").lower() in (
 )
 
 # --- HTTP server ---
-APP_PORT: int = int(os.environ.get("PORT", "5000"))
-APP_BIND_HOST: str = os.environ.get("BIND_HOST", "0.0.0.0")
+PORT: int = int(os.environ.get("PORT", "5000"))
+APP_PORT: int = PORT
+BIND_HOST: str = os.environ.get("BIND_HOST", "0.0.0.0")
+APP_BIND_HOST: str = BIND_HOST
 
-# --- AWS HTTP timeouts (botocore default read_timeout=60 is too low for RAG) ---
+# --- AWS HTTP client tuning ---
 BOTO_CONNECT_TIMEOUT: int = int(os.environ.get("BOTO_CONNECT_TIMEOUT", "10"))
 BOTO_READ_TIMEOUT: int = int(os.environ.get("BOTO_READ_TIMEOUT", "300"))
 BOTO_MAX_RETRY_ATTEMPTS: int = int(os.environ.get("BOTO_MAX_RETRY_ATTEMPTS", "10"))
 
-# --- Retrieval tuning (scope-aware) ---
-# Bedrock retrieve() allows at most 100 results per call.
-MAX_RESULTS_PER_CALL: int = 100
-SEARCH_TYPE: str = os.environ.get("RAG_SEARCH_TYPE", "HYBRID")
+# --- PDF / Docling ---
+PAGES_PER_CHUNK: int = int(os.environ.get("PAGES_PER_CHUNK", "3"))
 
-NARROW_NUMBER_OF_RESULTS: int = int(os.environ.get("RAG_NARROW_RESULTS", "50"))
-BROAD_NUMBER_OF_RESULTS: int = int(os.environ.get("RAG_BROAD_RESULTS", "100"))
-
-RESULTS_PER_COMPANY: int = int(os.environ.get("RAG_RESULTS_PER_COMPANY", "50"))
-RESULTS_PER_COMPANY_BROAD: int = int(os.environ.get("RAG_RESULTS_PER_COMPANY_BROAD", "60"))
-
-MAX_TOTAL_RESULTS: int = int(os.environ.get("RAG_MAX_TOTAL_RESULTS", "130"))
-MIN_RESULTS_PER_COMPANY: int = 15
-MAX_COMPARE_COMPANIES: int = int(os.environ.get("RAG_MAX_COMPARE_COMPANIES", "4"))
-
-NUMBER_OF_RESULTS: int = NARROW_NUMBER_OF_RESULTS
-METADATA_KEY: str = "insurance_company"
-
-# --- PDF processing ---
-PAGES_PER_CHUNK: int = int(os.environ.get("PAGES_PER_CHUNK", "5"))
-
-# --- Ingestion retry (Bedrock allows one ingestion job per KB at a time) ---
+# --- Bedrock KB ingestion retry ---
 INGESTION_MAX_RETRIES: int = int(os.environ.get("INGESTION_MAX_RETRIES", "15"))
 INGESTION_RETRY_DELAY_SECONDS: int = int(
     os.environ.get("INGESTION_RETRY_DELAY_SECONDS", "10")
 )
-INGESTION_RETRY_MAX_DELAY_SECONDS: int = 120
-
-# --- Policy registry caching ---
-POLICY_REGISTRY_TTL_SECONDS: int = int(
-    os.environ.get("POLICY_REGISTRY_TTL_SECONDS", "30")
+INGESTION_RETRY_MAX_DELAY_SECONDS: int = int(
+    os.environ.get("INGESTION_RETRY_MAX_DELAY_SECONDS", "120")
 )
 
-# --- Local working directories (mount EBS volumes here on EC2) ---
+# --- Local scratch directories ---
 BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER: str = os.environ.get(
     "UPLOAD_FOLDER", os.path.join(BASE_DIR, "tmp_uploads")
@@ -85,26 +81,10 @@ OUTPUT_FOLDER: str = os.environ.get(
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-# --- Company normalization ---
-COMPANY_ALIASES: dict[str, list[str]] = {
-    "Maccabi": ["maccabi", "מכבי", "מכבי שלי", "מכבי זהב"],
-    "Migdal": ["migdal", "מגדל"],
-    "Harel": ["harel", "הראל"],
-    "Clal": ["clal", "כלל"],
-    "Clalit": ["clalit", "כללית", "מושלם", "כללית מושלם"],
-    "Phoenix": ["phoenix", "הפניקס", "פניקס"],
-    "Menora": ["menora", "menora mivtachim", "מנורה", "מנורה מבטחים"],
-    "Ayalon": ["ayalon", "איילון", "אילון"],
-    "Meuhedet": ["meuhedet", "מאוחדת"],
-    "Leumit": ["leumit", "לאומית"],
-}
-
-UNKNOWN_COMPANY: str = "Unknown"
 LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "INFO").upper()
 
 
 def setup_logging() -> None:
-    """Configure root logging once for the whole application."""
     logging.basicConfig(
         level=getattr(logging, LOG_LEVEL, logging.INFO),
         format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
@@ -113,25 +93,40 @@ def setup_logging() -> None:
 
 
 def validate_aws_config() -> list[str]:
-    """Return configuration problems. Empty list means OK."""
+    """Return config problems. Empty list means OK."""
     problems: list[str] = []
-    if REQUIRE_AWS_ENV:
-        if not (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")):
-            problems.append("Missing required environment variable: AWS_REGION")
-        for name in ("S3_BUCKET_NAME", "KNOWLEDGE_BASE_ID", "BEDROCK_MODEL_ID"):
-            if not os.environ.get(name):
-                problems.append(f"Missing required environment variable: {name}")
+    if not REQUIRE_AWS_ENV:
+        return problems
 
-    for label, value in (
-        ("RAG_NARROW_RESULTS", NARROW_NUMBER_OF_RESULTS),
-        ("RAG_BROAD_RESULTS", BROAD_NUMBER_OF_RESULTS),
-        ("RAG_RESULTS_PER_COMPANY", RESULTS_PER_COMPANY),
-        ("RAG_RESULTS_PER_COMPANY_BROAD", RESULTS_PER_COMPANY_BROAD),
+    if not (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")):
+        problems.append("Missing required environment variable: AWS_REGION")
+
+    for name in (
+        "S3_BUCKET_NAME",
+        "KNOWLEDGE_BASE_ID",
+        "BEDROCK_MODEL_ID",
+        "BEDROCK_AGENT_ID",
+        "BEDROCK_AGENT_ALIAS_ID",
     ):
-        if value > MAX_RESULTS_PER_CALL:
-            problems.append(
-                f"{label} ({value}) exceeds Bedrock per-call maximum ({MAX_RESULTS_PER_CALL})"
-            )
+        if not os.environ.get(name):
+            problems.append(f"Missing required environment variable: {name}")
+
+    key_id = (os.environ.get("AWS_ACCESS_KEY_ID") or "").strip()
+    key_secret = (os.environ.get("AWS_SECRET_ACCESS_KEY") or "").strip()
+    if key_id and not key_secret:
+        problems.append(
+            "AWS_SECRET_ACCESS_KEY is required when AWS_ACCESS_KEY_ID is set"
+        )
+    elif key_secret and not key_id:
+        problems.append(
+            "AWS_ACCESS_KEY_ID is required when AWS_SECRET_ACCESS_KEY is set"
+        )
+    elif AWS_USE_ENV_CREDENTIALS and not (key_id and key_secret):
+        problems.append(
+            "Missing AWS credentials: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY "
+            "in .env. On EC2, set AWS_USE_ENV_CREDENTIALS=0 and use an IAM instance profile."
+        )
+
     return problems
 
 
@@ -141,49 +136,3 @@ def validate_aws_config_or_exit() -> None:
         logging.error("Configuration error: %s", msg)
     if problems and REQUIRE_AWS_ENV:
         sys.exit(1)
-
-
-_HEBREW_RANGE = "\u0590-\u05ff"
-_HEBREW_PREFIXES = "והבכלמש"
-_hebrew_re = re.compile(f"[{_HEBREW_RANGE}]")
-
-
-def alias_in_text(text: str, alias: str) -> bool:
-    """
-    Whole-word alias match.
-
-    - Latin aliases use ``\\b`` boundaries, so "clal" does not match inside
-      "clalit".
-    - Hebrew aliases allow a single attached prefix letter (e.g. "בכללית" ->
-      "כללית") while a trailing-letter boundary still stops "כלל" from matching
-      "כללית".
-    """
-    if _hebrew_re.search(alias):
-        pattern = (
-            rf"(?<![{_HEBREW_RANGE}])[{_HEBREW_PREFIXES}]?"
-            rf"{re.escape(alias)}(?![{_HEBREW_RANGE}])"
-        )
-    else:
-        pattern = rf"\b{re.escape(alias)}\b"
-    return re.search(pattern, text) is not None
-
-
-def normalize_company(raw: str | None) -> str:
-    """
-    Map any raw/alias company string to its canonical English name, choosing the
-    longest matching alias so e.g. "Clalit" wins over "Clal".
-    """
-    if not raw or not raw.strip():
-        return UNKNOWN_COMPANY
-
-    text = raw.strip().lower()
-    best_company: str | None = None
-    best_len = 0
-    for canonical, aliases in COMPANY_ALIASES.items():
-        for candidate in (canonical.lower(), *(a.lower() for a in aliases)):
-            if len(candidate) > best_len and alias_in_text(text, candidate):
-                best_company, best_len = canonical, len(candidate)
-
-    if best_company:
-        return best_company
-    return raw.strip().split()[0].title()

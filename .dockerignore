@@ -35,6 +35,11 @@ tmp_uploads/
 tmp_outputs/
 *.pdf
 temp_chunk_*.pdf
+*.log
+
+# Frontend source (not served by Flask; assets already copied to static/)
+lovabol/
+backend/components-new/
 
 # OS
 Thumbs.db

@@ -19,6 +19,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
 from config import (
+    AWS_PROFILE,
     BOTO_CONNECT_TIMEOUT,
     BOTO_MAX_RETRY_ATTEMPTS,
     BOTO_READ_TIMEOUT,
@@ -40,7 +41,10 @@ def get_botocore_config() -> Config:
 
 @lru_cache(maxsize=1)
 def _session() -> boto3.Session:
-    return boto3.Session(region_name=REGION)
+    kwargs: dict[str, str] = {"region_name": REGION}
+    if AWS_PROFILE:
+        kwargs["profile_name"] = AWS_PROFILE
+    return boto3.Session(**kwargs)
 
 
 def _client(service_name: str) -> Any:
@@ -66,6 +70,9 @@ def bedrock_agent_client() -> Any:
 def s3_client() -> Any:
     return _client("s3")
 
+@lru_cache(maxsize=1)
+def lambda_client() -> Any:
+    return _client("lambda")
 
 def check_aws_connectivity() -> tuple[bool, str]:
     """
@@ -78,7 +85,8 @@ def check_aws_connectivity() -> tuple[bool, str]:
     except NoCredentialsError:
         return (
             False,
-            "No AWS credentials found. Attach an IAM instance profile to the EC2 host.",
+            "No AWS credentials found. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env "
+            "(local Docker), or attach an IAM instance profile on EC2.",
         )
     except (ClientError, BotoCoreError) as exc:
         return False, f"AWS STS check failed: {exc}"

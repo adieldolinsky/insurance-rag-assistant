@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl" class="h-full">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>יודוקוליס – סוכן ביטוח בריאות חכם</title>
+    <meta name="description" content="יודוקוליס – סוכן AI מקצועי לניתוח וניהול פוליסות ביטוח בריאות." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- 1. Tailwind CDN loads first so window.tailwind is defined -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. Config set immediately after — CDN re-processes on mutation.
+         oklch approximated to sRGB so Tailwind v3 opacity modifiers (bg-brand/10 etc.) work correctly. -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Heebo', 'Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'sans-serif'],
+            },
+            colors: {
+              background:           ({ opacityValue }) => opacityValue != null ? `rgba(255,255,255,${opacityValue})`  : '#ffffff',
+              foreground:           ({ opacityValue }) => opacityValue != null ? `rgba(20,22,50,${opacityValue})`     : '#141632',
+              muted:                ({ opacityValue }) => opacityValue != null ? `rgba(243,244,249,${opacityValue})`  : '#f3f4f9',
+              'muted-foreground':   ({ opacityValue }) => opacityValue != null ? `rgba(101,112,153,${opacityValue})` : '#657099',
+              border:               ({ opacityValue }) => opacityValue != null ? `rgba(224,226,238,${opacityValue})` : '#e0e2ee',
+              brand:                ({ opacityValue }) => opacityValue != null ? `rgba(83,107,222,${opacityValue})`  : '#536bde',
+              'brand-glow':         ({ opacityValue }) => opacityValue != null ? `rgba(104,139,225,${opacityValue})` : '#688be1',
+              'brand-soft':         ({ opacityValue }) => opacityValue != null ? `rgba(237,241,254,${opacityValue})` : '#edf1fe',
+              'app-shell':          ({ opacityValue }) => opacityValue != null ? `rgba(248,249,253,${opacityValue})` : '#f8f9fd',
+              'chat-canvas':        ({ opacityValue }) => opacityValue != null ? `rgba(253,253,255,${opacityValue})` : '#fdfdff',
+            },
+            boxShadow: {
+              brand: '0 8px 24px -8px rgba(83,107,222,0.45)',
+            },
+            borderRadius: {
+              '2xl': '1.125rem',
+            },
+          },
+        },
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Explicit UMD build path — avoids loading the ESM bundle which doesn't expose window.lucide -->
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+    <style>
+        html, body { height: 100%; margin: 0; font-family: 'Heebo', 'Inter', system-ui, sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: oklch(0.85 0.01 256); border-radius: 999px; }
+
+        .prose-he p { margin: 0.3rem 0; line-height: 1.7; }
+        .prose-he p:first-child { margin-top: 0; }
+        .prose-he p:last-child { margin-bottom: 0; }
+        .prose-he strong { font-weight: 700; }
+        .prose-he h1,.prose-he h2,.prose-he h3 { font-weight: 700; margin: 0.5rem 0 0.25rem; }
+        .prose-he h1 { font-size: 1.05rem; }
+        .prose-he h2 { font-size: 0.97rem; }
+        .prose-he ul,.prose-he ol { padding-inline-start: 1.25rem; margin: 0.3rem 0; }
+        .prose-he ul { list-style: disc; }
+        .prose-he ol { list-style: decimal; }
+        .prose-he table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; font-size: 0.8rem; }
+        .prose-he th { background: oklch(0.96 0.025 250); font-weight: 700; }
+        .prose-he th,.prose-he td { border: 1px solid oklch(0.929 0.013 255.508); padding: 0.35rem 0.5rem; text-align: right; }
+        .prose-he a { color: oklch(0.58 0.16 250); text-decoration: underline; }
+    </style>
+</head>
+<body class="h-full">
+
+<div id="appRoot" dir="rtl" class="relative flex h-screen w-full bg-app-shell text-foreground">
+
+    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+        <div class="absolute -top-32 right-1/4 h-96 w-96 rounded-full bg-brand/10 blur-3xl"></div>
+        <div class="absolute bottom-0 left-1/4 h-96 w-96 rounded-full bg-brand-glow/10 blur-3xl"></div>
+    </div>
+
+    <div id="dragOverlay" class="absolute inset-0 z-50 hidden items-center justify-center bg-brand/10 backdrop-blur-sm">
+        <div class="rounded-2xl border-2 border-dashed border-brand bg-background px-12 py-10 text-center shadow-2xl">
+            <i data-lucide="upload" class="mx-auto mb-3 h-10 w-10 text-brand"></i>
+            <p class="text-lg font-semibold text-foreground">שחררו כאן את קובץ הפוליסה</p>
+            <p class="mt-1 text-sm text-muted-foreground">קבצי PDF בלבד</p>
+        </div>
+    </div>
+
+    <div class="relative z-10 flex min-w-0 flex-1 flex-col">
+
+        <div class="pointer-events-none absolute inset-0 z-0 opacity-[0.07]"
+             style="background-image:url('/static/png/ragbi-logo.png');background-repeat:no-repeat;background-position:center;background-size:min(70%,640px) auto;"></div>
+
+        <div id="chatScroll" class="relative z-10 flex-1 overflow-y-auto px-4 py-8 md:px-10 md:py-12">
+            <div class="mx-auto flex max-w-3xl flex-col gap-5">
+                <div class="mb-2 flex flex-col items-center text-center">
+                    <p class="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <i data-lucide="sparkles" class="h-3.5 w-3.5 text-brand"></i>
+                        סוכן AI לפוליסות ביטוח בריאות
+                    </p>
+                </div>
+                <div id="chatMessages" class="flex flex-col gap-5"></div>
+                <div id="suggestedWrap" class="mt-2 flex flex-wrap justify-center gap-2"></div>
+            </div>
+        </div>
+
+        <div class="px-4 pb-5 md:px-10">
+            <div class="mx-auto max-w-3xl">
+                <form id="chatForm"
+                      class="flex items-end gap-2 rounded-2xl border border-border/70 bg-background p-2 shadow-lg shadow-brand/5 transition-all focus-within:border-brand/50 focus-within:shadow-brand/20">
+                    <textarea id="chatInput" rows="1" placeholder="יש לך שאלה ליודוקוליס?"
+                              class="max-h-40 min-h-[40px] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none"></textarea>
+                    <button id="sendBtn" type="submit" aria-label="שלח" disabled
+                            class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-brand-glow text-white shadow-brand transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40">
+                        <i data-lucide="send" class="h-4 w-4 -scale-x-100"></i>
+                    </button>
+                </form>
+
+                <div class="mt-4 flex flex-col items-center gap-3">
+                    <div class="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <i data-lucide="lock" class="h-3 w-3"></i>
+                        שיחה מאובטחת ומוצפנת · ללא שמירת מידע אישי מזהה
+                    </div>
+                    <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 opacity-60 grayscale transition-all hover:opacity-100 hover:grayscale-0">
+                        <img src="/static/png/clalit.png"   alt="כללית"        title="כללית"        class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/maccabi.png"  alt="מכבי"         title="מכבי"         class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/leumit.png"   alt="לאומית"       title="לאומית"       class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/meuhedet.png" alt="מאוחדת"       title="מאוחדת"       class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/harel.png"    alt="הראל"         title="הראל"         class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/migdal.png"   alt="מגדל"         title="מגדל"         class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/menora.png"   alt="מנורה מבטחים" title="מנורה מבטחים" class="h-7 w-auto object-contain md:h-8" />
+                        <img src="/static/png/phoenix.png"  alt="הפניקס"       title="הפניקס"       class="h-7 w-auto object-contain md:h-8" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <aside id="sidebar"
+           class="relative z-10 flex shrink-0 flex-col overflow-hidden border-s border-border/60 bg-background/60 backdrop-blur-xl transition-all duration-300 ease-in-out w-80">
+        <div class="flex h-full w-80 flex-col">
+
+            <div class="flex items-center gap-3 border-b border-border/60 px-5 py-4">
+                <img src="/static/png/yodoculis.png" alt="יודוקוליס" class="h-10 w-10 object-contain rounded-full border border-border/60 p-0.5 bg-white" />
+                <div class="flex-1 leading-tight">
+                    <p class="text-sm font-bold text-foreground">יודוקוליס</p>
+                    <p class="text-[11px] text-muted-foreground">AI Health Insurance Agent</p>
+                </div>
+                <button id="sidebarCloseBtn" aria-label="סגור סיידבר"
+                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+                    <i data-lucide="x" class="h-4 w-4"></i>
+                </button>
+            </div>
+
+            <div class="border-b border-border/60 px-5 py-4">
+                <button id="newChatBtn"
+                        class="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border border-brand/30 bg-brand-soft px-3 py-2.5 text-sm font-semibold text-brand transition-all hover:bg-brand/10">
+                    <i data-lucide="message-square-plus" class="h-4 w-4"></i>
+                    שיחה חדשה
+                </button>
+                <h3 class="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <i data-lucide="history" class="h-3 w-3"></i>
+                    היסטוריית שיחות
+                </h3>
+                <ul id="conversationList" class="space-y-1 max-h-40 overflow-y-auto pe-1"></ul>
+            </div>
+
+            <div class="border-b border-border/60 px-5 py-5">
+                <h3 class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">כלים נוספים</h3>
+                <ul class="space-y-1 opacity-50 pointer-events-none">
+                    <li class="flex items-center justify-between rounded-lg px-3 py-2 text-sm">
+                        <span class="flex items-center gap-2.5"><i data-lucide="folder-heart" class="h-4 w-4 text-foreground/70"></i>תיק פוליסות משפחתי</span>
+                        <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">בקרוב</span>
+                    </li>
+                    <li class="flex items-center justify-between rounded-lg px-3 py-2 text-sm">
+                        <span class="flex items-center gap-2.5"><i data-lucide="percent" class="h-4 w-4 text-foreground/70"></i>השוואת פוליסות</span>
+                        <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">בקרוב</span>
+                    </li>
+                    <li class="flex items-center justify-between rounded-lg px-3 py-2 text-sm">
+                        <span class="flex items-center gap-2.5"><i data-lucide="receipt" class="h-4 w-4 text-foreground/70"></i>הגשת קבלות</span>
+                        <span class="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">בקרוב</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="flex min-h-0 flex-1 flex-col px-5 py-5">
+                <div class="mb-3 flex items-center justify-between">
+                    <h3 class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">הפוליסות שלי</h3>
+                    <span id="policyCount" class="hidden rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand">0</span>
+                </div>
+                <div class="flex-1 overflow-y-auto pe-1">
+                    <div id="emptyPolicies" class="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-background/50 px-4 py-8 text-center">
+                        <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft text-brand">
+                            <i data-lucide="inbox" class="h-5 w-5"></i>
+                        </div>
+                        <p class="text-sm font-medium text-foreground">אין עדיין פוליסות</p>
+                        <p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            העלו קובץ PDF של פוליסת ביטוח כדי שאוכל לנתח עבורכם את הכיסויים.
+                        </p>
+                    </div>
+                    <ul id="policyList" class="hidden space-y-2"></ul>
+                </div>
+            </div>
+
+            <div class="border-t border-border/60 p-4">
+                <input id="fileInput" type="file" accept="application/pdf" multiple class="hidden" />
+                <button id="uploadBtn"
+                        class="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-brand to-brand-glow px-4 py-3 text-sm font-semibold text-white shadow-brand transition-all hover:opacity-95 active:scale-[0.99]">
+                    <i data-lucide="upload" class="h-4 w-4 transition-transform group-hover:-translate-y-0.5"></i>
+                    העלאת פוליסה (PDF)
+                </button>
+                <p class="mt-2 flex items-center justify-center gap-1 text-center text-[10px] text-muted-foreground">
+                    <i data-lucide="shield" class="h-3 w-3"></i>
+                    הקבצים מאובטחים ומוצפנים
+                </p>
+            </div>
+        </div>
+    </aside>
+
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+/* ── DOM refs ── */
+const appRoot         = document.getElementById('appRoot');
+const sidebar         = document.getElementById('sidebar');
+const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+const newChatBtn      = document.getElementById('newChatBtn');
+const conversationList= document.getElementById('conversationList');
+const chatScroll      = document.getElementById('chatScroll');
+const chatMessages    = document.getElementById('chatMessages');
+const suggestedWrap   = document.getElementById('suggestedWrap');
+const chatForm        = document.getElementById('chatForm');
+const chatInput       = document.getElementById('chatInput');
+const sendBtn         = document.getElementById('sendBtn');
+const fileInput       = document.getElementById('fileInput');
+const uploadBtn       = document.getElementById('uploadBtn');
+const dragOverlay     = document.getElementById('dragOverlay');
+const emptyPolicies   = document.getElementById('emptyPolicies');
+const policyList      = document.getElementById('policyList');
+const policyCount     = document.getElementById('policyCount');
+
+const YODOCULIS_AVATAR = '/static/png/yodoculis.png';
+
+/* ── Constants ── */
+const WELCOME_MESSAGE = 'שלום וברכה!\nשמי יודוקוליס ליפשיץ ואני הסוכן שלכם לפוליסות בריאות! אני כאן לכל שאלה שיש..';
+const SUGGESTED_QUESTIONS = [
+    'מה הפוליסה שלי מכסה?',
+    'האם ניתוח X מכוסה?',
+    'מה ההשתתפות העצמית שלי?',
+    'איך מגישים תביעה?',
+];
+
+/* ── State ── */
+let chatSessionId = sessionStorage.getItem('chatSessionId') || '';
+let uploadedFiles = [];
+let isSidebarOpen = true;
+let isSending     = false;
+let messageCount  = 0;
+
+/* ── Helpers ── */
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str ?? '';
+    return d.innerHTML;
+}
+function renderIcons() {
+    if (window.lucide && typeof lucide.createIcons === 'function') lucide.createIcons();
+}
+function scrollToBottom() {
+    requestAnimationFrame(() => { chatScroll.scrollTop = chatScroll.scrollHeight; });
+}
+/* Secure-context-safe id generator.
+   crypto.randomUUID() only exists on HTTPS / localhost. On a plain-HTTP origin
+   (e.g. http://<ec2-ip>:5000) it is undefined and throws, which previously froze
+   the whole page on load. Fall back to getRandomValues, then to a non-crypto id. */
+function generateSessionId() {
+    try {
+        if (window.crypto && typeof crypto.randomUUID === 'function') {
+            return crypto.randomUUID().replace(/-/g, '');
+        }
+        if (window.crypto && typeof crypto.getRandomValues === 'function') {
+            const bytes = new Uint8Array(16);
+            crypto.getRandomValues(bytes);
+            return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+        }
+    } catch (_) { /* fall through to non-crypto fallback */ }
+    return 'sid' + Date.now().toString(16) + Math.random().toString(16).slice(2, 10);
+}
+function ensureSession() {
+    if (!chatSessionId) {
+        chatSessionId = generateSessionId();
+        sessionStorage.setItem('chatSessionId', chatSessionId);
+    }
+    return chatSessionId;
+}
+
+/* ── Sidebar toggle ── */
+function setSidebar(open) {
+    isSidebarOpen = open;
+    sidebar.classList.toggle('w-80', open);
+    sidebar.classList.toggle('w-0', !open);
+    renderIcons();
+}
+sidebarCloseBtn.addEventListener('click', () => setSidebar(false));
+
+/* ── Conversation list ── */
+let conversations = [{ id: 'current', title: 'שיחה נוכחית', active: true }];
+function renderConversations() {
+    conversationList.innerHTML = '';
+    conversations.forEach(c => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.className = 'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-right text-sm transition-colors ' +
+            (c.active ? 'bg-brand-soft text-brand font-medium' : 'text-foreground/80 hover:bg-muted');
+        btn.innerHTML = `<span class="truncate">${escapeHtml(c.title)}</span>`;
+        li.appendChild(btn);
+        conversationList.appendChild(li);
+    });
+}
+
+/* ── Message bubbles ── */
+function appendUserBubble(content) {
+    const row = document.createElement('div');
+    row.className = 'flex items-end justify-end gap-2.5';
+    row.innerHTML = `
+        <div class="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-gradient-to-br from-brand to-brand-glow px-4 py-2.5 text-sm leading-relaxed text-white shadow-brand">${escapeHtml(content)}</div>
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand shadow-sm">
+            <i data-lucide="user" class="h-4 w-4"></i>
+        </div>`;
+    chatMessages.appendChild(row);
+    renderIcons();
+    scrollToBottom();
+    return row;
+}
+
+function appendBotBubble(content, isMarkdown = false) {
+    const row = document.createElement('div');
+    row.className = 'flex items-end justify-start gap-2.5';
+    const bubble = document.createElement('div');
+    bubble.className = 'prose-he max-w-[78%] rounded-2xl rounded-tr-sm border border-border/60 bg-background px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-sm';
+    if (isMarkdown) {
+        bubble.innerHTML = marked.parse(content);
+    } else {
+        bubble.classList.add('whitespace-pre-wrap');
+        bubble.textContent = content;
+    }
+    const avatar = document.createElement('img');
+    avatar.src = YODOCULIS_AVATAR;
+    avatar.alt = 'יודוקוליס';
+    avatar.className = 'h-9 w-9 shrink-0 rounded-full border border-border/60 bg-white object-contain p-0.5 shadow-sm';
+    row.appendChild(avatar);
+    row.appendChild(bubble);
+    chatMessages.appendChild(row);
+    scrollToBottom();
+    return row;
+}
+
+function appendTypingBubble() {
+    const row = document.createElement('div');
+    row.className = 'flex items-end justify-start gap-2.5';
+    row.innerHTML = `
+        <img src="${YODOCULIS_AVATAR}" alt="יודוקוליס"
+             class="h-9 w-9 shrink-0 rounded-full border border-border/60 bg-white object-contain p-0.5 shadow-sm" />
+        <div class="rounded-2xl rounded-tr-sm border border-border/60 bg-background px-4 py-3 shadow-sm">
+            <div class="flex items-center gap-1">
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70" style="animation-delay:-0.3s"></span>
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70" style="animation-delay:-0.15s"></span>
+                <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-brand/70"></span>
+            </div>
+        </div>`;
+    chatMessages.appendChild(row);
+    scrollToBottom();
+    return row;
+}
+
+/* ── Suggested questions ── */
+function renderSuggested(show) {
+    suggestedWrap.innerHTML = '';
+    if (!show) return;
+    SUGGESTED_QUESTIONS.forEach(q => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rounded-full border border-border/70 bg-background px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand/50 hover:text-brand hover:shadow-md';
+        btn.textContent = q;
+        btn.addEventListener('click', () => sendText(q));
+        suggestedWrap.appendChild(btn);
+    });
+}
+
+/* ── Welcome ── */
+function showWelcome() {
+    chatMessages.innerHTML = '';
+    messageCount = 0;
+    appendBotBubble(WELCOME_MESSAGE, false);
+    renderSuggested(true);
+}
+
+/* ── New chat ── */
+newChatBtn.addEventListener('click', () => {
+    chatSessionId = generateSessionId();
+    sessionStorage.setItem('chatSessionId', chatSessionId);
+    conversations = [{ id: 'current', title: 'שיחה נוכחית', active: true }];
+    renderConversations();
+    showWelcome();
+    chatInput.value = '';
+    autoGrow();
+});
+
+/* ── Textarea auto-grow ── */
+function autoGrow() {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
+    sendBtn.disabled = !chatInput.value.trim() || isSending;
+}
+chatInput.addEventListener('input', autoGrow);
+chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.requestSubmit(); }
+});
+
+/* ── Chat send ── */
+async function sendText(text) {
+    const query = (text ?? '').trim();
+    if (!query || isSending) return;
+
+    renderSuggested(false);
+    appendUserBubble(query);
+    messageCount++;
+    chatInput.value = '';
+    autoGrow();
+
+    isSending = true;
+    sendBtn.disabled = true;
+    const typing = appendTypingBubble();
+
+    try {
+        const res = await fetch('/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, session_id: ensureSession() }),
+        });
+        const data = await res.json();
+        typing.remove();
+        if (res.ok) {
+            if (data.session_id) {
+                chatSessionId = data.session_id;
+                sessionStorage.setItem('chatSessionId', chatSessionId);
+            }
+            appendBotBubble(data.answer ?? '', true);
+        } else {
+            appendBotBubble(`שגיאה: ${data.error || 'תקלה לא ידועה'}`, false);
+        }
+    } catch {
+        typing.remove();
+        appendBotBubble('אירעה שגיאה. נסו שוב בעוד רגע.', false);
+    } finally {
+        isSending = false;
+        autoGrow();
+    }
+}
+chatForm.addEventListener('submit', e => { e.preventDefault(); sendText(chatInput.value); });
+
+/* ── Policies sidebar render ── */
+function renderPolicies() {
+    if (!uploadedFiles.length) {
+        emptyPolicies.classList.remove('hidden');
+        policyList.classList.add('hidden');
+        policyCount.classList.add('hidden');
+        return;
+    }
+    emptyPolicies.classList.add('hidden');
+    policyList.classList.remove('hidden');
+    policyCount.classList.remove('hidden');
+    policyCount.textContent = uploadedFiles.length;
+
+    policyList.innerHTML = '';
+    uploadedFiles.forEach(p => {
+        const li = document.createElement('li');
+        li.className = 'group flex items-start gap-3 rounded-xl border border-border/60 bg-background p-3 transition-all hover:border-brand/40 hover:shadow-sm';
+        const ready = p.status !== 'processing';
+        li.innerHTML = `
+            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
+                <i data-lucide="file-text" class="h-4 w-4"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium text-foreground" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</p>
+                <span class="mt-1 inline-flex items-center gap-1 rounded-full ${ready ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'} px-2 py-0.5 text-[10px] font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full ${ready ? 'bg-emerald-500' : 'bg-amber-500'}"></span>
+                    ${ready ? 'סרוק במערכת' : 'בעיבוד...'}
+                </span>
+            </div>`;
+        policyList.appendChild(li);
+    });
+    renderIcons();
+}
+
+function persistPolicies() {
+    sessionStorage.setItem('uploadedFiles', JSON.stringify(uploadedFiles));
+}
+
+/* ── Upload ── */
+uploadBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+    Array.from(fileInput.files || []).forEach(f => uploadFile(f));
+    fileInput.value = '';
+});
+
+appRoot.addEventListener('dragover', e => { e.preventDefault(); dragOverlay.classList.remove('hidden'); dragOverlay.classList.add('flex'); });
+appRoot.addEventListener('dragleave', e => { e.preventDefault(); dragOverlay.classList.add('hidden'); dragOverlay.classList.remove('flex'); });
+appRoot.addEventListener('drop', e => {
+    e.preventDefault();
+    dragOverlay.classList.add('hidden'); dragOverlay.classList.remove('flex');
+    Array.from(e.dataTransfer.files || []).forEach(f => uploadFile(f));
+});
+
+async function uploadFile(file) {
+    if (!(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) return;
+
+    const tempId = `p_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const entry = { id: tempId, name: file.name, status: 'processing', company: '' };
+    uploadedFiles.push(entry);
+    renderPolicies();
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('session_id', ensureSession());
+        formData.append('upload_type', 'user');
+
+        const res  = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (res.status === 202) {
+            if (data.session_id) {
+                chatSessionId = data.session_id;
+                sessionStorage.setItem('chatSessionId', chatSessionId);
+            }
+            persistPolicies();
+            pollStatus(data.job_id, tempId, data.filename || file.name);
+        } else {
+            markPolicyError(tempId);
+        }
+    } catch {
+        markPolicyError(tempId);
+    }
+}
+
+function markPolicyReady(tempId, meta) {
+    const p = uploadedFiles.find(x => x.id === tempId);
+    if (p) {
+        p.status = 'ready';
+        if (meta?.filename) p.name = meta.filename;
+        if (meta?.company)  p.company = meta.company;
+    }
+    persistPolicies();
+    renderPolicies();
+}
+function markPolicyError(tempId) {
+    uploadedFiles = uploadedFiles.filter(x => x.id !== tempId);
+    persistPolicies();
+    renderPolicies();
+}
+
+function pollStatus(jobId, tempId, pendingName) {
+    const interval = setInterval(async () => {
+        try {
+            const res  = await fetch(`/status/${jobId}`);
+            const data = await res.json();
+            if (data.state === 'done') {
+                clearInterval(interval);
+                markPolicyReady(tempId, {
+                    filename: data.filename || pendingName,
+                    company:  data.company || data.metadata?.company || '',
+                });
+            } else if (data.state === 'error') {
+                clearInterval(interval);
+                markPolicyError(tempId);
+            }
+        } catch {
+            clearInterval(interval);
+            markPolicyError(tempId);
+        }
+    }, 2500);
+}
+
+/* ── Init ── */
+function loadStored() {
+    try {
+        const raw = sessionStorage.getItem('uploadedFiles');
+        if (raw) {
+            uploadedFiles = JSON.parse(raw).map(p => ({ ...p, status: p.status === 'processing' ? 'ready' : (p.status || 'ready') }));
+        }
+    } catch { uploadedFiles = []; }
+}
+
+function init() {
+    ensureSession();
+    loadStored();
+    renderConversations();
+    renderPolicies();
+    showWelcome();
+    autoGrow();
+    renderIcons();
+}
+
+/* Never let a single init failure freeze the whole page (chat + upload listeners
+   are attached above, so they keep working even if rendering hits a snag). */
+try {
+    init();
+} catch (err) {
+    console.error('init() failed:', err);
+    renderIcons();
+}
+
+}); /* end DOMContentLoaded */
+</script>
+</body>
+</html>

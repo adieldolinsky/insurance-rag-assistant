@@ -1,51 +1,51 @@
 """
-Flask entry point for the Insurance RAG web application.
-
-Routes:
-  GET  /              -> the Hebrew RTL chat + upload UI
-  GET  /health        -> liveness probe (no AWS calls)
-  GET  /ready         -> readiness probe (STS + S3 bucket)
-  GET  /policies      -> policies currently in the Knowledge Base
-  POST /upload        -> save PDF, background thread, 202 Accepted
-  GET  /status/<id>   -> poll ingestion progress
-  POST /chat          -> RAG retrieval + generation
+Flask entry point — ingestion orchestration + Bedrock Agent chat.
 """
 from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import uuid
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Ensure project root (config.py) is importable when running from backend/
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from flask import Flask, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
-from config import (
-    BUCKET_NAME,
-    UPLOAD_FOLDER,
-    setup_logging,
-    validate_aws_config_or_exit,
-)
-from services import bedrock_service, policy_registry, upload_service
+from config import BUCKET_NAME, UPLOAD_FOLDER, setup_logging, validate_aws_config_or_exit
+from services import bedrock_service, upload_service
 from services.aws_clients import check_aws_connectivity, check_s3_bucket
 
 setup_logging()
 validate_aws_config_or_exit()
 logger = logging.getLogger(__name__)
 
+_creds_ok, _creds_detail = check_aws_connectivity()
+if not _creds_ok:
+    logger.error("AWS credentials check failed at startup: %s", _creds_detail)
+else:
+    logger.info("AWS credentials OK: %s", _creds_detail)
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
 
 @app.route("/health")
 def health():
-    """Liveness: process is running. Safe for Docker HEALTHCHECK / ALB."""
     return jsonify({"status": "ok"}), 200
 
 
 @app.route("/ready")
 def ready():
-    """Readiness: IAM credentials and S3 bucket are reachable."""
     ok, detail = check_aws_connectivity()
     if not ok:
         return jsonify({"status": "not_ready", "error": detail}), 503
@@ -54,25 +54,12 @@ def ready():
     if not bucket_ok:
         return jsonify({"status": "not_ready", "error": bucket_detail}), 503
 
-    return jsonify(
-        {"status": "ready", "identity": detail, "bucket": BUCKET_NAME}
-    ), 200
+    return jsonify({"status": "ready", "identity": detail, "bucket": BUCKET_NAME}), 200
 
 
 @app.route("/")
 def index() -> str:
     return render_template("index.html")
-
-
-@app.route("/policies")
-def policies():
-    try:
-        force = request.args.get("refresh") == "1"
-        items = [p.to_dict() for p in policy_registry.list_policies(force_refresh=force)]
-        return jsonify({"policies": items})
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to list policies: %s", exc)
-        return jsonify({"policies": [], "error": "לא ניתן לטעון את רשימת הפוליסות."}), 500
 
 
 @app.route("/upload", methods=["POST"])
@@ -88,10 +75,12 @@ def upload():
 
     original_filename = secure_filename(file.filename)
     job_id = uuid.uuid4().hex
+    upload_type = request.form.get("upload_type", "user")
+    session_id = (request.form.get("session_id") or "").strip() or uuid.uuid4().hex
 
     saved_path = os.path.join(UPLOAD_FOLDER, f"{job_id}_{original_filename}")
     file.save(saved_path)
-    logger.info("Received upload '%s' (job %s).", original_filename, job_id)
+    logger.info("Received upload '%s' (job %s, type=%s).", original_filename, job_id, upload_type)
 
     upload_service.JOB_STATUS[job_id] = {
         "state": "processing",
@@ -102,6 +91,7 @@ def upload():
     thread = threading.Thread(
         target=upload_service.process_document,
         args=(job_id, saved_path, original_filename),
+        kwargs={"upload_type": upload_type, "session_id": session_id},
         daemon=True,
     )
     thread.start()
@@ -110,6 +100,7 @@ def upload():
         jsonify(
             {
                 "job_id": job_id,
+                "session_id": session_id,
                 "filename": original_filename,
                 "message": "הקובץ התקבל ומעובד ברקע.",
             }
@@ -133,14 +124,15 @@ def chat():
     if not query:
         return jsonify({"error": "השאלה ריקה."}), 400
 
+    session_id = (data.get("session_id") or "").strip() or uuid.uuid4().hex
+
     try:
-        answer = bedrock_service.retrieve_and_generate(query)
-        return jsonify({"answer": answer})
+        answer = bedrock_service.retrieve_and_generate(query, session_id)
+        return jsonify({"answer": answer, "session_id": session_id})
     except RuntimeError as exc:
         message = str(exc)
         logger.error("Chat failed: %s", message)
-        status = 504 if "זמן רב מדי" in message or "timed out" in message.lower() else 500
-        return jsonify({"error": message}), status
+        return jsonify({"error": message}), 500
     except Exception as exc:  # noqa: BLE001
         logger.exception("Chat failed: %s", exc)
         return jsonify({"error": "אירעה שגיאה בעת ניתוח השאלה. נסו שוב."}), 500

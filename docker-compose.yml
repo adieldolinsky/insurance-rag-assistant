@@ -1,0 +1,19 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: insurance-rag-api
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - ./tmp_uploads:/app/tmp_uploads
+      - ./tmp_outputs:/app/tmp_outputs
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
